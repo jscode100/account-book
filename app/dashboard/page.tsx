@@ -32,7 +32,7 @@ export default function Dashboard() {
   const [amount, setAmount] = useState('')
   const [memo, setMemo] = useState('')
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
-  const [txOwner, setTxOwner] = useState('공통') // ★ 신규 추가: 주체 구분 ('아내' | '남편' | '공통')
+  const [txOwner, setTxOwner] = useState('공통')
 
   // 카테고리 추가 폼 상태
   const [newCategoryType, setNewCategoryType] = useState('지출')
@@ -48,7 +48,6 @@ export default function Dashboard() {
       if (uData) {
         setDbUser(uData)
         
-        // 카테고리 불러오기 및 시딩
         let { data: catData } = await supabase.from('categories').select('*').eq('household_id', uData.household_id)
         if (!catData || catData.length === 0) {
           const defaultCategories = [
@@ -77,7 +76,6 @@ export default function Dashboard() {
         }
         setCategories(catData || [])
 
-        // 내역 불러오기
         const startStr = format(startOfMonth(currentMonth), 'yyyy-MM-dd')
         const endStr = format(endOfMonth(currentMonth), 'yyyy-MM-dd')
         const { data: txData } = await supabase
@@ -101,11 +99,14 @@ export default function Dashboard() {
   useEffect(() => {
     const filtered = categories.filter(c => c.type === txType)
     if (filtered.length > 0) {
-      setSelectedCategoryId(filtered[0].id)
+      // 모달 모드가 'edit'일 때 기존 카테고리를 덮어씌우지 않도록 방어 로직 추가
+      if (modalMode !== 'edit' || !selectedCategoryId) {
+        setSelectedCategoryId(filtered[0].id)
+      }
     } else {
       setSelectedCategoryId('')
     }
-  }, [txType, categories, isModalOpen])
+  }, [txType, categories, isModalOpen, modalMode])
 
   // --- 온보딩 시스템 ---
   const createHousehold = async () => {
@@ -123,13 +124,12 @@ export default function Dashboard() {
     window.location.reload()
   }
 
-  // 내역 모달 열기 함수 제어 (디폴트 구분값 매핑)
+  // 모달 제어
   const openCreateModal = () => {
     setModalMode('create')
     setAmount('')
     setMemo('')
     
-    // ★ 폰의 주인(닉네임)에 맞게 기본 타겟 자동 설정
     if (dbUser.nickname.includes('아내') || dbUser.nickname.includes('소은')) {
       setTxOwner('아내')
     } else if (dbUser.nickname.includes('남편') || dbUser.nickname.includes('제이스')) {
@@ -140,7 +140,18 @@ export default function Dashboard() {
     setIsModalOpen(true)
   }
 
-  // 저장 및 수정
+  const openEditModal = (tx: any) => {
+    setModalMode('edit')
+    setEditingTxId(tx.id)
+    setSelectedDate(new Date(tx.date))
+    setTxType(tx.type)
+    setAmount(tx.amount.toString())
+    setMemo(tx.description || '')
+    setSelectedCategoryId(tx.category_id || '')
+    setTxOwner(tx.owner || '공통')
+    setIsModalOpen(true)
+  }
+
   const saveTransaction = async () => {
     if (!amount) return alert('금액을 입력해주세요.')
     
@@ -152,7 +163,7 @@ export default function Dashboard() {
       category_id: selectedCategoryId || null,
       date: format(selectedDate, 'yyyy-MM-dd'),
       description: memo,
-      owner: txOwner // ★ DB에 구분 값 함께 전송
+      owner: txOwner
     }
 
     if (modalMode === 'edit' && editingTxId) {
@@ -166,25 +177,12 @@ export default function Dashboard() {
     loadData()
   }
 
-  const openEditModal = (tx: any) => {
-    setModalMode('edit')
-    setEditingTxId(tx.id)
-    setSelectedDate(new Date(tx.date))
-    setTxType(tx.type)
-    setAmount(tx.amount.toString())
-    setMemo(tx.description || '')
-    setSelectedCategoryId(tx.category_id || '')
-    setTxOwner(tx.owner || '공통') // 수정 시 기존 설정값 불러오기
-    setIsModalOpen(true)
-  }
-
   const deleteTransaction = async (id: string) => {
     if (!confirm('이 내역을 정말 삭제하시겠습니까?')) return
     await supabase.from('transactions').delete().eq('id', id)
     loadData()
   }
 
-  // 카테고리 관리
   const addCustomCategory = async () => {
     if (!newCategoryName) return alert('카테고리명을 입력해주세요.')
     await supabase.from('categories').insert({ household_id: dbUser.household_id, type: newCategoryType, name: newCategoryName })
@@ -198,14 +196,12 @@ export default function Dashboard() {
     loadData()
   }
 
-  // 이모지 변환기 매핑용 헬퍼 함수
   const getOwnerEmoji = (owner: string) => {
     if (owner === '아내') return '🩷'
     if (owner === '남편') return '💙'
     return '👩🏻‍❤️‍👨🏻'
   }
 
-  // 금액 계산기
   const totalIncome = transactions.filter(t => t.type === '수입').reduce((sum, t) => sum + t.amount, 0)
   const totalExpense = transactions.filter(t => t.type === '지출').reduce((sum, t) => sum + t.amount, 0)
   const remainingMoney = totalIncome - totalExpense
@@ -225,6 +221,7 @@ export default function Dashboard() {
   if (!dbUser) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        {/* 온보딩 생략 */}
         <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 max-w-md w-full">
           <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">환영합니다!</h2>
           <div className="mb-6">
@@ -259,7 +256,7 @@ export default function Dashboard() {
           </div>
         </header>
 
-        {/* [탭 1] 달력 메인 뷰 */}
+        {/* 탭 1: 달력 뷰 */}
         {activeTab === 'calendar' && (
           <>
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
@@ -317,7 +314,6 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* 선택일 상세 내역 패널 */}
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
               <h3 className="text-base font-bold text-gray-800 mb-4">{format(selectedDate, 'M월 d일')} 내역</h3>
               <div className="space-y-1">
@@ -327,7 +323,6 @@ export default function Dashboard() {
                   selectedDayTransactions.map(tx => (
                     <div key={tx.id} className="flex justify-between items-center p-3 hover:bg-gray-50 rounded-xl transition-colors">
                       <div className="flex items-center gap-2">
-                        {/* ★ 신규 추가: 주체에 따른 이모지 라벨 표기 */}
                         <span className="text-base mr-1">{getOwnerEmoji(tx.owner)}</span>
                         <div className="flex flex-col">
                           <span className="text-sm font-semibold text-gray-800">{tx.description || '내용 없음'}</span>
@@ -353,7 +348,7 @@ export default function Dashboard() {
           </>
         )}
 
-        {/* [탭 2] 전체 이력 뷰 */}
+        {/* 탭 2: 전체 이력 뷰 */}
         {activeTab === 'all' && (
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
             <div className="space-y-1">
@@ -363,7 +358,6 @@ export default function Dashboard() {
                 allRecentTransactions.map(tx => (
                   <div key={tx.id} className="flex justify-between items-center p-3 hover:bg-gray-50 rounded-xl transition-colors">
                     <div className="flex items-center gap-2">
-                      {/* ★ 전체 이력 뷰에도 이모지 적용 */}
                       <span className="text-base mr-1">{getOwnerEmoji(tx.owner)}</span>
                       <div className="flex flex-col">
                         <span className="text-sm font-semibold text-gray-800">{tx.description || '내용 없음'}</span>
@@ -389,14 +383,13 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* [탭 3] 카테고리 및 정보 설정 뷰 */}
+        {/* 탭 3: 설정 뷰 */}
         {activeTab === 'settings' && (
           <div className="space-y-6">
             <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100">
               <h2 className="text-sm font-bold text-gray-700 mb-2">배우자 초대코드</h2>
               <p className="text-xs text-gray-500 break-all bg-gray-50 p-3 rounded-xl border border-gray-100 font-mono select-all cursor-pointer">{dbUser.household_id}</p>
             </div>
-
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 space-y-6">
               <h3 className="text-base font-bold text-gray-800">카테고리 추가/삭제</h3>
               <div className="flex gap-2 bg-gray-50 p-2 rounded-2xl border border-gray-100">
@@ -407,10 +400,9 @@ export default function Dashboard() {
                 <input type="text" placeholder="새 분류 이름" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none" />
                 <button onClick={addCustomCategory} className="bg-gray-900 text-white text-xs px-4 rounded-xl font-bold hover:bg-gray-800 transition-colors">추가</button>
               </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <h4 className="text-xs font-bold text-blue-500 mb-2">💰 수입 소분류</h4>
+                  <h4 className="text-xs font-bold text-blue-500 mb-2">💰 수입</h4>
                   <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
                     {categories.filter(c => c.type === '수입').map(c => (
                       <div key={c.id} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-xl text-xs text-gray-700 border border-gray-100">
@@ -421,7 +413,7 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-gray-500 mb-2">💸 지출 소분류</h4>
+                  <h4 className="text-xs font-bold text-gray-500 mb-2">💸 지출</h4>
                   <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
                     {categories.filter(c => c.type === '지출').map(c => (
                       <div key={c.id} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-xl text-xs text-gray-700 border border-gray-100">
@@ -435,20 +427,19 @@ export default function Dashboard() {
             </div>
           </div>
         )}
-
       </div>
 
-      {/* 플로팅 입력 버튼 */}
+      {/* 플로팅 버튼 */}
       {activeTab !== 'settings' && (
         <button 
-          onClick={openCreateModal} // 전용 오픈 함수로 변경
+          onClick={openCreateModal}
           className="fixed bottom-24 right-6 bg-gray-900 text-white p-4 rounded-full shadow-lg hover:bg-gray-800 transition-transform hover:scale-105 z-40"
         >
           <Plus size={24} />
         </button>
       )}
 
-      {/* 하단 네비게이션 바 */}
+      {/* 하단 네비게이션 */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-gray-100 py-3 px-6 flex justify-around items-center z-40 shadow-lg max-w-xl mx-auto sm:rounded-t-3xl">
         <button onClick={() => setActiveTab('calendar')} className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'calendar' ? 'text-gray-900' : 'text-gray-400'}`}>
           <CalendarIcon size={20} /><span className="text-[10px] font-bold">달력</span>
@@ -461,68 +452,86 @@ export default function Dashboard() {
         </button>
       </nav>
 
-      {/* 입력 및 수정 모달 */}
+      {/* 입력 및 수정 타이트 모달 */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/20 z-50 flex items-end sm:items-center sm:justify-center">
           <div className="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl p-6 shadow-2xl">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-gray-800">{format(selectedDate, 'M월 d일')} {modalMode === 'edit' ? '내역 수정' : '내역 추가'}</h3>
-              <button onClick={() => setIsModalOpen(false)} className="p-2 text-gray-400 hover:text-gray-600"><X size={24} /></button>
+            
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="text-lg font-bold text-gray-800">{format(selectedDate, 'M월 d일')} {modalMode === 'edit' ? '수정' : '추가'}</h3>
+              <button onClick={() => setIsModalOpen(false)} className="p-1 text-gray-400 hover:text-gray-600"><X size={24} /></button>
             </div>
 
-            <div className="flex p-1 bg-gray-100 rounded-xl mb-6">
+            {/* 수입/지출 선택 탭 */}
+            <div className="flex p-1 bg-gray-100 rounded-xl mb-4">
               {['지출', '수입'].map(type => (
                 <button key={type} onClick={() => setTxType(type)} className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-colors ${txType === type ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>{type}</button>
               ))}
             </div>
 
-            <div className="space-y-5 mb-8">
-              {/* ★ 신규 추가: 기획하신 주체 구분 3단 토글 세그먼트 버튼 */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5">누가 썼나요? (내역 구분)</label>
-                <div className="grid grid-cols-3 gap-2 p-1 bg-gray-50 rounded-xl border border-gray-100">
-                  {[
-                    { value: '아내', label: '🩷 아내' },
-                    { value: '남편', label: '💙 남편' },
-                    { value: '공통', label: '👩🏻‍❤️‍👨🏻 공통' }
-                  ].map(opt => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setTxOwner(opt.value)}
-                      className={`py-2 text-xs font-bold rounded-lg transition-all ${
-                        txOwner === opt.value 
-                          ? 'bg-white text-gray-900 shadow-sm border border-gray-100 scale-[1.02]' 
-                          : 'text-gray-400 hover:text-gray-600'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">카테고리 분류</label>
-                <select value={selectedCategoryId} onChange={(e) => setSelectedCategoryId(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 font-medium focus:outline-none focus:ring-2 focus:ring-gray-200">
-                  {categories.filter(c => c.type === txType).map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">금액</label>
-                <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" className="w-full text-3xl font-bold text-gray-900 placeholder-gray-300 border-b-2 border-gray-100 pb-2 focus:outline-none focus:border-blue-500 transition-colors" autoFocus />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">내용</label>
-                <input type="text" value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="메모를 입력하세요" className="w-full text-base text-gray-800 placeholder-gray-400 bg-gray-50 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-gray-200" />
-              </div>
+            {/* 3단 토글 버튼 (라벨 제거) */}
+            <div className="grid grid-cols-3 gap-2 p-1 bg-gray-50 rounded-xl border border-gray-100 mb-4">
+              {[
+                { value: '아내', label: '🩷 아내' },
+                { value: '남편', label: '💙 남편' },
+                { value: '공통', label: '👩🏻‍❤️‍👨🏻 공통' }
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setTxOwner(opt.value)}
+                  className={`py-2 text-xs font-bold rounded-lg transition-all ${
+                    txOwner === opt.value ? 'bg-white text-gray-900 shadow-sm border border-gray-100 scale-[1.02]' : 'text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
 
-            <button onClick={saveTransaction} className="w-full bg-gray-900 text-white font-bold text-lg py-4 rounded-2xl hover:bg-gray-800 transition-colors">
+            {/* 카테고리 버튼 그리드 (라벨 제거, 드롭다운 -> 버튼형 교체) */}
+            <div className="flex flex-wrap gap-1.5 mb-5">
+              {categories.filter(c => c.type === txType).map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => setSelectedCategoryId(c.id)}
+                  className={`px-3 py-2 text-[11px] font-bold rounded-xl transition-colors ${
+                    selectedCategoryId === c.id
+                      ? 'bg-gray-800 text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}
+                >
+                  {c.name}
+                </button>
+              ))}
+            </div>
+
+            {/* 금액 & 메모 (라벨 제거) */}
+            <div className="space-y-4 mb-8">
+              <div className="relative">
+                <span className="absolute left-0 top-0 bottom-0 flex items-center text-xl font-bold text-gray-400">₩</span>
+                <input 
+                  type="number" 
+                  value={amount} 
+                  onChange={(e) => setAmount(e.target.value)} 
+                  placeholder="0" 
+                  className="w-full pl-7 text-3xl font-bold text-gray-900 placeholder-gray-300 border-b-2 border-gray-100 pb-2 focus:outline-none focus:border-blue-500 transition-colors" 
+                  autoFocus 
+                />
+              </div>
+              <input 
+                type="text" 
+                value={memo} 
+                onChange={(e) => setMemo(e.target.value)} 
+                placeholder="내용을 입력하세요" 
+                className="w-full text-sm text-gray-800 placeholder-gray-400 bg-gray-50 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-gray-200" 
+              />
+            </div>
+
+            <button onClick={saveTransaction} className="w-full bg-gray-900 text-white font-bold text-base py-4 rounded-2xl hover:bg-gray-800 transition-colors">
               {modalMode === 'edit' ? '수정완료' : '저장하기'}
             </button>
+            
           </div>
         </div>
       )}
