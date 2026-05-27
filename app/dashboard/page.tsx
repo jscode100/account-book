@@ -11,15 +11,12 @@ export default function Dashboard() {
   const [user, setUser] = useState<any>(null)
   const [dbUser, setDbUser] = useState<any>(null)
   
-  // 데이터 상태
   const [transactions, setTransactions] = useState<any[]>([])
   const [categories, setCategories] = useState<any[]>([])
   
-  // 온보딩 상태
   const [inviteCode, setInviteCode] = useState('')
   const [nickname, setNickname] = useState('')
 
-  // UI 제어 상태
   const [activeTab, setActiveTab] = useState<'calendar' | 'all' | 'settings'>('calendar')
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -27,18 +24,18 @@ export default function Dashboard() {
   const [editingTxId, setEditingTxId] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState(new Date())
   
-  // 가계부 입력 폼 상태
   const [txType, setTxType] = useState('지출')
-  const [amount, setAmount] = useState('') // 이제 콤마가 포함된 문자열이 저장됩니다.
+  const [amount, setAmount] = useState('')
   const [memo, setMemo] = useState('')
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
   const [txOwner, setTxOwner] = useState('공통')
 
-  // 카테고리 추가 폼 상태
   const [newCategoryType, setNewCategoryType] = useState('지출')
   const [newCategoryName, setNewCategoryName] = useState('')
 
-  // 데이터 로드
+  // ★ 신규 추가: 메모 입력창 포커스 상태 (자동완성 목록 표시용)
+  const [isMemoFocused, setIsMemoFocused] = useState(false)
+
   const loadData = async () => {
     const { data: { user } } = await supabase.auth.getUser()
     if (user) {
@@ -107,7 +104,6 @@ export default function Dashboard() {
     }
   }, [txType, categories, isModalOpen, modalMode])
 
-  // --- 온보딩 시스템 ---
   const createHousehold = async () => {
     if (!nickname) return alert('닉네임을 입력해주세요.')
     const { data: household } = await supabase.from('households').insert({}).select().single()
@@ -123,15 +119,12 @@ export default function Dashboard() {
     window.location.reload()
   }
 
-  // ★ 신규 추가: 금액 입력 시 콤마 자동 생성기
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // 숫자 이외의 문자(콤마 등)를 모두 제거
     const rawValue = e.target.value.replace(/[^0-9]/g, '')
     if (!rawValue) {
       setAmount('')
       return
     }
-    // 숫자로 변환 후 다시 콤마가 포함된 포맷으로 변경
     setAmount(Number(rawValue).toLocaleString())
   }
 
@@ -155,7 +148,7 @@ export default function Dashboard() {
     setEditingTxId(tx.id)
     setSelectedDate(new Date(tx.date))
     setTxType(tx.type)
-    setAmount(tx.amount.toLocaleString()) // 수정 시에도 콤마가 찍힌 상태로 불러옵니다.
+    setAmount(tx.amount.toLocaleString())
     setMemo(tx.description || '')
     setSelectedCategoryId(tx.category_id || '')
     setTxOwner(tx.owner || '공통')
@@ -165,7 +158,6 @@ export default function Dashboard() {
   const saveTransaction = async () => {
     if (!amount) return alert('금액을 입력해주세요.')
     
-    // DB에 저장할 때는 콤마를 제거하고 순수 숫자로 변환합니다.
     const numericAmount = Number(amount.replace(/,/g, ''))
     
     const txData = {
@@ -229,6 +221,12 @@ export default function Dashboard() {
   const selectedDayTransactions = transactions.filter(t => t.date === selectedDateStr)
   const allRecentTransactions = [...transactions].reverse()
 
+  // ★ 신규 추가: 과거에 입력했던 메모 목록 추출 (중복 제거 및 최신순)
+  const recentUniqueMemos = Array.from(new Set([...transactions].reverse().map(t => t.description).filter(Boolean)))
+  const filteredMemos = memo 
+    ? recentUniqueMemos.filter(m => m.toLowerCase().includes(memo.toLowerCase())).slice(0, 5)
+    : recentUniqueMemos.slice(0, 5)
+
   if (loading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-400">로딩 중...</div>
 
   if (!dbUser) {
@@ -238,14 +236,16 @@ export default function Dashboard() {
           <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">환영합니다!</h2>
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">사용할 닉네임</label>
-            <input type="text" className="w-full border border-gray-300 rounded-xl px-4 py-2" value={nickname} onChange={(e) => setNickname(e.target.value)} />
+            {/* 확대 방지를 위해 text-base 적용 */}
+            <input type="text" className="w-full border border-gray-300 rounded-xl px-4 py-2 text-base" value={nickname} onChange={(e) => setNickname(e.target.value)} />
           </div>
           <div className="space-y-4">
             <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
               <button onClick={createHousehold} className="w-full bg-gray-800 text-white rounded-xl py-2.5 font-medium">새 가계부 만들기</button>
             </div>
             <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-              <input type="text" className="w-full border border-gray-300 rounded-xl px-4 py-2 mb-3 text-sm" placeholder="초대코드 입력" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} />
+              {/* 확대 방지를 위해 text-base 적용 */}
+              <input type="text" className="w-full border border-gray-300 rounded-xl px-4 py-2 mb-3 text-base" placeholder="초대코드 입력" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} />
               <button onClick={joinHousehold} className="w-full bg-white border border-gray-300 text-gray-700 rounded-xl py-2.5 font-medium">연결하기</button>
             </div>
           </div>
@@ -258,7 +258,6 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-50 pb-36 relative">
       <div className="max-w-xl mx-auto space-y-6 p-6">
         
-        {/* 상단 헤더 */}
         <header className="flex justify-between items-center py-2">
           <h1 className="text-2xl font-bold text-gray-800 tracking-tight">
             {activeTab === 'calendar' ? '자산 흐름' : activeTab === 'all' ? '전체 이력' : '가계부 설정'}
@@ -268,7 +267,6 @@ export default function Dashboard() {
           </div>
         </header>
 
-        {/* 탭 1: 달력 뷰 */}
         {activeTab === 'calendar' && (
           <>
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
@@ -360,7 +358,6 @@ export default function Dashboard() {
           </>
         )}
 
-        {/* 탭 2: 전체 이력 뷰 */}
         {activeTab === 'all' && (
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
             <div className="space-y-1">
@@ -395,7 +392,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* 탭 3: 설정 뷰 */}
         {activeTab === 'settings' && (
           <div className="space-y-6">
             <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100">
@@ -405,11 +401,12 @@ export default function Dashboard() {
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 space-y-6">
               <h3 className="text-base font-bold text-gray-800">카테고리 추가/삭제</h3>
               <div className="flex gap-2 bg-gray-50 p-2 rounded-2xl border border-gray-100">
-                <select value={newCategoryType} onChange={(e) => setNewCategoryType(e.target.value)} className="bg-white border border-gray-200 rounded-xl px-2 text-xs font-bold text-gray-700 focus:outline-none">
+                {/* 확대 방지 text-base 적용 */}
+                <select value={newCategoryType} onChange={(e) => setNewCategoryType(e.target.value)} className="bg-white border border-gray-200 rounded-xl px-2 text-base font-bold text-gray-700 focus:outline-none">
                   <option value="지출">지출</option>
                   <option value="수입">수입</option>
                 </select>
-                <input type="text" placeholder="새 분류 이름" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none" />
+                <input type="text" placeholder="새 분류 이름" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-base focus:outline-none" />
                 <button onClick={addCustomCategory} className="bg-gray-900 text-white text-xs px-4 rounded-xl font-bold hover:bg-gray-800 transition-colors">추가</button>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -441,7 +438,6 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* 플로팅 버튼 */}
       {activeTab !== 'settings' && (
         <button 
           onClick={openCreateModal}
@@ -451,7 +447,6 @@ export default function Dashboard() {
         </button>
       )}
 
-      {/* 하단 네비게이션 */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-gray-100 py-3 px-6 flex justify-around items-center z-40 shadow-lg max-w-xl mx-auto sm:rounded-t-3xl">
         <button onClick={() => setActiveTab('calendar')} className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'calendar' ? 'text-gray-900' : 'text-gray-400'}`}>
           <CalendarIcon size={20} /><span className="text-[10px] font-bold">달력</span>
@@ -464,7 +459,6 @@ export default function Dashboard() {
         </button>
       </nav>
 
-      {/* 입력 및 수정 타이트 모달 */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/20 z-50 flex items-end sm:items-center sm:justify-center">
           <div className="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl p-6 shadow-2xl">
@@ -474,14 +468,12 @@ export default function Dashboard() {
               <button onClick={() => setIsModalOpen(false)} className="p-1 text-gray-400 hover:text-gray-600"><X size={24} /></button>
             </div>
 
-            {/* 수입/지출 선택 탭 */}
             <div className="flex p-1 bg-gray-100 rounded-xl mb-4">
               {['지출', '수입'].map(type => (
                 <button key={type} onClick={() => setTxType(type)} className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-colors ${txType === type ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>{type}</button>
               ))}
             </div>
 
-            {/* 3단 토글 버튼 */}
             <div className="grid grid-cols-3 gap-2 p-1 bg-gray-50 rounded-xl border border-gray-100 mb-4">
               {[
                 { value: '아내', label: '🩷 아내' },
@@ -501,7 +493,6 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* 카테고리 버튼 그리드 */}
             <div className="flex flex-wrap gap-1.5 mb-5">
               {categories.filter(c => c.type === txType).map(c => (
                 <button
@@ -518,10 +509,10 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* 금액 & 메모 */}
             <div className="space-y-4 mb-8">
               <div className="relative">
                 <span className="absolute left-0 top-0 bottom-0 flex items-center text-xl font-bold text-gray-400">₩</span>
+                {/* ★ autoFocus 제거하여 키패드가 강제로 올라오는 현상 방지 */}
                 <input 
                   type="text" 
                   inputMode="numeric"
@@ -529,16 +520,39 @@ export default function Dashboard() {
                   onChange={handleAmountChange} 
                   placeholder="0" 
                   className="w-full pl-7 text-3xl font-bold text-gray-900 placeholder-gray-300 border-b-2 border-gray-100 pb-2 focus:outline-none focus:border-blue-500 transition-colors" 
-                  autoFocus 
                 />
               </div>
-              <input 
-                type="text" 
-                value={memo} 
-                onChange={(e) => setMemo(e.target.value)} 
-                placeholder="내용을 입력하세요" 
-                className="w-full text-sm text-gray-800 placeholder-gray-400 bg-gray-50 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-gray-200" 
-              />
+              
+              {/* ★ 내용 입력창 (text-base 적용 및 추천 기능 추가) */}
+              <div className="relative">
+                <input 
+                  type="text" 
+                  value={memo} 
+                  onChange={(e) => setMemo(e.target.value)} 
+                  onFocus={() => setIsMemoFocused(true)}
+                  onBlur={() => setTimeout(() => setIsMemoFocused(false), 200)} // 터치 인식 시간 벌기
+                  placeholder="내용을 입력하세요" 
+                  className="w-full text-base text-gray-800 placeholder-gray-400 bg-gray-50 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-gray-200" 
+                />
+                
+                {/* 추천 내역 팝업 박스 */}
+                {isMemoFocused && filteredMemos.length > 0 && (
+                  <div className="absolute z-10 w-full mt-2 bg-white border border-gray-100 rounded-xl shadow-lg overflow-hidden bottom-full mb-2">
+                    {filteredMemos.map((m, idx) => (
+                      <div 
+                        key={idx} 
+                        className="px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-0"
+                        onClick={() => {
+                          setMemo(m)
+                          setIsMemoFocused(false)
+                        }}
+                      >
+                        {m}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <button onClick={saveTransaction} className="w-full bg-gray-900 text-white font-bold text-base py-4 rounded-2xl hover:bg-gray-800 transition-colors">
