@@ -29,7 +29,7 @@ export default function Dashboard() {
   
   // 가계부 입력 폼 상태
   const [txType, setTxType] = useState('지출')
-  const [amount, setAmount] = useState('')
+  const [amount, setAmount] = useState('') // 이제 콤마가 포함된 문자열이 저장됩니다.
   const [memo, setMemo] = useState('')
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
   const [txOwner, setTxOwner] = useState('공통')
@@ -99,7 +99,6 @@ export default function Dashboard() {
   useEffect(() => {
     const filtered = categories.filter(c => c.type === txType)
     if (filtered.length > 0) {
-      // 모달 모드가 'edit'일 때 기존 카테고리를 덮어씌우지 않도록 방어 로직 추가
       if (modalMode !== 'edit' || !selectedCategoryId) {
         setSelectedCategoryId(filtered[0].id)
       }
@@ -124,7 +123,18 @@ export default function Dashboard() {
     window.location.reload()
   }
 
-  // 모달 제어
+  // ★ 신규 추가: 금액 입력 시 콤마 자동 생성기
+  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // 숫자 이외의 문자(콤마 등)를 모두 제거
+    const rawValue = e.target.value.replace(/[^0-9]/g, '')
+    if (!rawValue) {
+      setAmount('')
+      return
+    }
+    // 숫자로 변환 후 다시 콤마가 포함된 포맷으로 변경
+    setAmount(Number(rawValue).toLocaleString())
+  }
+
   const openCreateModal = () => {
     setModalMode('create')
     setAmount('')
@@ -145,7 +155,7 @@ export default function Dashboard() {
     setEditingTxId(tx.id)
     setSelectedDate(new Date(tx.date))
     setTxType(tx.type)
-    setAmount(tx.amount.toString())
+    setAmount(tx.amount.toLocaleString()) // 수정 시에도 콤마가 찍힌 상태로 불러옵니다.
     setMemo(tx.description || '')
     setSelectedCategoryId(tx.category_id || '')
     setTxOwner(tx.owner || '공통')
@@ -155,11 +165,14 @@ export default function Dashboard() {
   const saveTransaction = async () => {
     if (!amount) return alert('금액을 입력해주세요.')
     
+    // DB에 저장할 때는 콤마를 제거하고 순수 숫자로 변환합니다.
+    const numericAmount = Number(amount.replace(/,/g, ''))
+    
     const txData = {
       household_id: dbUser.household_id,
       user_id: user.id,
       type: txType,
-      amount: Number(amount),
+      amount: numericAmount,
       category_id: selectedCategoryId || null,
       date: format(selectedDate, 'yyyy-MM-dd'),
       description: memo,
@@ -221,7 +234,6 @@ export default function Dashboard() {
   if (!dbUser) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        {/* 온보딩 생략 */}
         <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 max-w-md w-full">
           <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">환영합니다!</h2>
           <div className="mb-6">
@@ -469,7 +481,7 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* 3단 토글 버튼 (라벨 제거) */}
+            {/* 3단 토글 버튼 */}
             <div className="grid grid-cols-3 gap-2 p-1 bg-gray-50 rounded-xl border border-gray-100 mb-4">
               {[
                 { value: '아내', label: '🩷 아내' },
@@ -489,7 +501,7 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* 카테고리 버튼 그리드 (라벨 제거, 드롭다운 -> 버튼형 교체) */}
+            {/* 카테고리 버튼 그리드 */}
             <div className="flex flex-wrap gap-1.5 mb-5">
               {categories.filter(c => c.type === txType).map(c => (
                 <button
@@ -506,14 +518,15 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* 금액 & 메모 (라벨 제거) */}
+            {/* 금액 & 메모 */}
             <div className="space-y-4 mb-8">
               <div className="relative">
                 <span className="absolute left-0 top-0 bottom-0 flex items-center text-xl font-bold text-gray-400">₩</span>
                 <input 
-                  type="number" 
+                  type="text" 
+                  inputMode="numeric"
                   value={amount} 
-                  onChange={(e) => setAmount(e.target.value)} 
+                  onChange={handleAmountChange} 
                   placeholder="0" 
                   className="w-full pl-7 text-3xl font-bold text-gray-900 placeholder-gray-300 border-b-2 border-gray-100 pb-2 focus:outline-none focus:border-blue-500 transition-colors" 
                   autoFocus 
