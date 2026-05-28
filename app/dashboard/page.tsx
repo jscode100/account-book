@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, subMonths, isToday, isSameDay } from 'date-fns'
+// ★ startOfYear 함수가 새로 추가되었습니다.
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, subMonths, isToday, isSameDay, startOfYear } from 'date-fns'
 import { Plus, X, ChevronLeft, ChevronRight, Trash2, Edit2, Calendar as CalendarIcon, ClipboardList, Settings, Download } from 'lucide-react'
 
 export default function Dashboard() {
@@ -13,6 +14,8 @@ export default function Dashboard() {
   
   const [transactions, setTransactions] = useState<any[]>([])
   const [categories, setCategories] = useState<any[]>([])
+  // ★ 신규 추가: 해당 연도 누적 잉여 자금 상태
+  const [ytdRemainingMoney, setYtdRemainingMoney] = useState(0)
   
   const [inviteCode, setInviteCode] = useState('')
   const [nickname, setNickname] = useState('')
@@ -71,17 +74,32 @@ export default function Dashboard() {
         }
         setCategories(catData || [])
 
-        const startStr = format(startOfMonth(currentMonth), 'yyyy-MM-dd')
-        const endStr = format(endOfMonth(currentMonth), 'yyyy-MM-dd')
+        // ★ 해당 연도의 1월 1일부터 검색하도록 날짜 범위 확장
+        const yearStartStr = format(startOfYear(currentMonth), 'yyyy-MM-dd')
+        const monthStartStr = format(startOfMonth(currentMonth), 'yyyy-MM-dd')
+        const monthEndStr = format(endOfMonth(currentMonth), 'yyyy-MM-dd')
+        
         const { data: txData } = await supabase
           .from('transactions')
           .select('*, categories(name)')
           .eq('household_id', uData.household_id)
-          .gte('date', startStr)
-          .lte('date', endStr)
+          .gte('date', yearStartStr)
+          .lte('date', monthEndStr) // 1월부터 '현재 보고 있는 달'의 끝날까지
           .order('date', { ascending: true })
 
-        setTransactions(txData || [])
+        if (txData) {
+          // 1. 올해 1월부터 해당 월까지의 누적 잉여 자금 계산
+          const ytdInc = txData.filter(t => t.type === '수입').reduce((sum, t) => sum + t.amount, 0)
+          const ytdExp = txData.filter(t => t.type === '지출').reduce((sum, t) => sum + t.amount, 0)
+          setYtdRemainingMoney(ytdInc - ytdExp)
+
+          // 2. 화면 달력과 리스트에 보여줄 '이번 달' 데이터만 필터링해서 분리
+          const currentMonthTx = txData.filter(t => t.date >= monthStartStr && t.date <= monthEndStr)
+          setTransactions(currentMonthTx)
+        } else {
+          setTransactions([])
+          setYtdRemainingMoney(0)
+        }
       }
     }
     setLoading(false)
@@ -155,8 +173,8 @@ export default function Dashboard() {
 
   const saveTransaction = async () => {
     if (!amount) return alert('금액을 입력해주세요.')
-    
     const numericAmount = Number(amount.replace(/,/g, ''))
+    
     const txData = {
       household_id: dbUser.household_id,
       user_id: user.id,
@@ -173,7 +191,6 @@ export default function Dashboard() {
     } else {
       await supabase.from('transactions').insert(txData)
     }
-    
     setIsModalOpen(false)
     setEditingTxId(null)
     loadData()
@@ -271,26 +288,24 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-50 pb-36 relative">
       <div className="max-w-xl md:max-w-6xl mx-auto space-y-6 p-6">
         
-        {/* 상단 헤더: PC 환경을 위한 버튼 영역 추가 */}
         <header className="flex justify-between items-center py-2">
+          {/* ★ 핵심 수정: 자산 흐름 텍스트 대신 "YY년 ₩누적자금" 출력 */}
           <h1 className="text-2xl font-bold text-gray-800 tracking-tight">
-            {activeTab === 'calendar' ? '자산 흐름' : activeTab === 'all' ? '전체 이력' : '가계부 설정'}
+            {activeTab === 'calendar' 
+              ? `${format(currentMonth, 'yy')}년 ₩${ytdRemainingMoney.toLocaleString()}` 
+              : activeTab === 'all' ? '전체 이력' : '가계부 설정'}
           </h1>
           
           <div className="flex items-center gap-2">
-            {/* ★ 신규 추가: PC 화면(md 이상)에서만 나타나는 상단 메뉴들 */}
             <button onClick={openCreateModal} className="hidden md:flex items-center gap-1.5 bg-gray-900 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-800 transition-colors shadow-sm">
               <Plus size={16} /><span>내역 추가</span>
             </button>
-            
             <button onClick={downloadCSV} className="hidden md:flex items-center gap-1.5 bg-green-50 text-green-700 px-4 py-2 rounded-xl text-sm font-bold border border-green-200 hover:bg-green-100 transition-colors shadow-sm">
               <Download size={16} /><span>엑셀 추출</span>
             </button>
-
             <button onClick={() => setActiveTab(activeTab === 'settings' ? 'calendar' : 'settings')} className="hidden md:flex items-center gap-1.5 bg-white text-gray-700 px-4 py-2 rounded-xl text-sm font-bold border border-gray-200 hover:bg-gray-50 transition-colors shadow-sm">
               <Settings size={16} /><span>{activeTab === 'settings' ? '돌아가기' : '설정'}</span>
             </button>
-
             <div className="text-sm bg-white px-4 py-2 ml-1 rounded-full border border-gray-200 text-gray-600 shadow-sm font-medium">
               {dbUser.nickname}님
             </div>
@@ -299,12 +314,11 @@ export default function Dashboard() {
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
           
-          {/* 모바일 뷰 영역 (PC에서는 좌측 패널) */}
           <div className="md:col-span-5 space-y-6">
             {activeTab === 'calendar' && (
               <>
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-                  <p className="text-sm text-gray-500 font-medium mb-1">이번 달 남은 잉여 자금</p>
+                  <p className="text-sm text-gray-500 font-medium mb-1">이번 달 순수익</p>
                   <p className="text-3xl font-bold text-gray-800 mb-4">₩ {remainingMoney.toLocaleString()}</p>
                   <div className="flex gap-4 text-sm">
                     <div className="flex-1 bg-blue-50/50 p-3 rounded-2xl">
@@ -471,7 +485,6 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* PC 환경 전용 데이터 테이블 뷰 */}
           <div className="hidden md:block md:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-gray-100 h-fit sticky top-6">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-bold text-gray-800">{format(currentMonth, 'M월')} 상세 데이터 표</h3>
@@ -525,7 +538,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 플로팅 버튼 (모바일용) */}
       {activeTab !== 'settings' && (
         <button 
           onClick={openCreateModal}
@@ -535,7 +547,6 @@ export default function Dashboard() {
         </button>
       )}
 
-      {/* 하단 네비게이션 (모바일용) */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-gray-100 py-3 px-6 flex justify-around items-center z-40 shadow-lg max-w-xl mx-auto sm:rounded-t-3xl">
         <button onClick={() => setActiveTab('calendar')} className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'calendar' ? 'text-gray-900' : 'text-gray-400'}`}>
           <CalendarIcon size={20} /><span className="text-[10px] font-bold">달력</span>
@@ -548,7 +559,6 @@ export default function Dashboard() {
         </button>
       </nav>
 
-      {/* 입력 및 수정 타이트 모달 */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/20 z-50 flex items-end sm:items-center sm:justify-center">
           <div className="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl p-6 shadow-2xl">
