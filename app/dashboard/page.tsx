@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, subMonths, isToday, isSameDay } from 'date-fns'
-import { Plus, X, ChevronLeft, ChevronRight, Trash2, Edit2, Calendar as CalendarIcon, ClipboardList, Settings } from 'lucide-react'
+import { Plus, X, ChevronLeft, ChevronRight, Trash2, Edit2, Calendar as CalendarIcon, ClipboardList, Settings, Download } from 'lucide-react'
 
 export default function Dashboard() {
   const supabase = createClient()
@@ -32,8 +32,6 @@ export default function Dashboard() {
 
   const [newCategoryType, setNewCategoryType] = useState('지출')
   const [newCategoryName, setNewCategoryName] = useState('')
-
-  // ★ 신규 추가: 메모 입력창 포커스 상태 (자동완성 목록 표시용)
   const [isMemoFocused, setIsMemoFocused] = useState(false)
 
   const loadData = async () => {
@@ -159,7 +157,6 @@ export default function Dashboard() {
     if (!amount) return alert('금액을 입력해주세요.')
     
     const numericAmount = Number(amount.replace(/,/g, ''))
-    
     const txData = {
       household_id: dbUser.household_id,
       user_id: user.id,
@@ -207,6 +204,25 @@ export default function Dashboard() {
     return '👩🏻‍❤️‍👨🏻'
   }
 
+  const downloadCSV = () => {
+    const headers = ['날짜', '분류', '주체', '카테고리', '내용', '금액']
+    const csvRows = transactions.map(tx => {
+      const safeMemo = tx.description ? `"${tx.description.replace(/"/g, '""')}"` : '""'
+      return `${tx.date},${tx.type},${tx.owner},${tx.categories?.name || '미분류'},${safeMemo},${tx.amount}`
+    })
+    
+    const csvContent = '\uFEFF' + [headers.join(','), ...csvRows].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    
+    link.href = url
+    link.download = `가계부_내역_${format(currentMonth, 'yyyy년_M월')}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   const totalIncome = transactions.filter(t => t.type === '수입').reduce((sum, t) => sum + t.amount, 0)
   const totalExpense = transactions.filter(t => t.type === '지출').reduce((sum, t) => sum + t.amount, 0)
   const remainingMoney = totalIncome - totalExpense
@@ -221,7 +237,6 @@ export default function Dashboard() {
   const selectedDayTransactions = transactions.filter(t => t.date === selectedDateStr)
   const allRecentTransactions = [...transactions].reverse()
 
-  // ★ 신규 추가: 과거에 입력했던 메모 목록 추출 (중복 제거 및 최신순)
   const recentUniqueMemos = Array.from(new Set([...transactions].reverse().map(t => t.description).filter(Boolean)))
   const filteredMemos = memo 
     ? recentUniqueMemos.filter(m => m.toLowerCase().includes(memo.toLowerCase())).slice(0, 5)
@@ -236,7 +251,6 @@ export default function Dashboard() {
           <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">환영합니다!</h2>
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">사용할 닉네임</label>
-            {/* 확대 방지를 위해 text-base 적용 */}
             <input type="text" className="w-full border border-gray-300 rounded-xl px-4 py-2 text-base" value={nickname} onChange={(e) => setNickname(e.target.value)} />
           </div>
           <div className="space-y-4">
@@ -244,7 +258,6 @@ export default function Dashboard() {
               <button onClick={createHousehold} className="w-full bg-gray-800 text-white rounded-xl py-2.5 font-medium">새 가계부 만들기</button>
             </div>
             <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-              {/* 확대 방지를 위해 text-base 적용 */}
               <input type="text" className="w-full border border-gray-300 rounded-xl px-4 py-2 mb-3 text-base" placeholder="초대코드 입력" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} />
               <button onClick={joinHousehold} className="w-full bg-white border border-gray-300 text-gray-700 rounded-xl py-2.5 font-medium">연결하기</button>
             </div>
@@ -256,198 +269,274 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-36 relative">
-      <div className="max-w-xl mx-auto space-y-6 p-6">
+      <div className="max-w-xl md:max-w-6xl mx-auto space-y-6 p-6">
         
+        {/* 상단 헤더: PC 환경을 위한 버튼 영역 추가 */}
         <header className="flex justify-between items-center py-2">
           <h1 className="text-2xl font-bold text-gray-800 tracking-tight">
             {activeTab === 'calendar' ? '자산 흐름' : activeTab === 'all' ? '전체 이력' : '가계부 설정'}
           </h1>
-          <div className="text-sm bg-white px-4 py-2 rounded-full border border-gray-200 text-gray-600 shadow-sm font-medium">
-            {dbUser.nickname}님
+          
+          <div className="flex items-center gap-2">
+            {/* ★ 신규 추가: PC 화면(md 이상)에서만 나타나는 상단 메뉴들 */}
+            <button onClick={openCreateModal} className="hidden md:flex items-center gap-1.5 bg-gray-900 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-800 transition-colors shadow-sm">
+              <Plus size={16} /><span>내역 추가</span>
+            </button>
+            
+            <button onClick={downloadCSV} className="hidden md:flex items-center gap-1.5 bg-green-50 text-green-700 px-4 py-2 rounded-xl text-sm font-bold border border-green-200 hover:bg-green-100 transition-colors shadow-sm">
+              <Download size={16} /><span>엑셀 추출</span>
+            </button>
+
+            <button onClick={() => setActiveTab(activeTab === 'settings' ? 'calendar' : 'settings')} className="hidden md:flex items-center gap-1.5 bg-white text-gray-700 px-4 py-2 rounded-xl text-sm font-bold border border-gray-200 hover:bg-gray-50 transition-colors shadow-sm">
+              <Settings size={16} /><span>{activeTab === 'settings' ? '돌아가기' : '설정'}</span>
+            </button>
+
+            <div className="text-sm bg-white px-4 py-2 ml-1 rounded-full border border-gray-200 text-gray-600 shadow-sm font-medium">
+              {dbUser.nickname}님
+            </div>
           </div>
         </header>
 
-        {activeTab === 'calendar' && (
-          <>
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-              <p className="text-sm text-gray-500 font-medium mb-1">이번 달 남은 잉여 자금</p>
-              <p className="text-3xl font-bold text-gray-800 mb-4">₩ {remainingMoney.toLocaleString()}</p>
-              <div className="flex gap-4 text-sm">
-                <div className="flex-1 bg-blue-50/50 p-3 rounded-2xl">
-                  <p className="text-blue-600/70 font-medium mb-1">수입</p>
-                  <p className="font-semibold text-blue-900">₩ {totalIncome.toLocaleString()}</p>
-                </div>
-                <div className="flex-1 bg-gray-50/50 p-3 rounded-2xl">
-                  <p className="text-gray-500 font-medium mb-1">지출 합계</p>
-                  <p className="font-semibold text-gray-800">₩ {totalExpense.toLocaleString()}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-              <div className="flex justify-between items-center mb-6">
-                <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 hover:bg-gray-50 rounded-full transition-colors"><ChevronLeft size={20} className="text-gray-400"/></button>
-                <h2 className="text-lg font-bold text-gray-800">{format(currentMonth, 'yyyy년 M월')}</h2>
-                <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 hover:bg-gray-50 rounded-full transition-colors"><ChevronRight size={20} className="text-gray-400"/></button>
-              </div>
-
-              <div className="grid grid-cols-7 gap-y-4 text-center">
-                {['일', '월', '화', '수', '목', '금', '토'].map(day => (
-                  <div key={day} className="text-xs font-semibold text-gray-400 mb-2">{day}</div>
-                ))}
-                {emptyDays.map((_, i) => <div key={`empty-${i}`} />)}
-                {daysInMonth.map(day => {
-                  const dateStr = format(day, 'yyyy-MM-dd')
-                  const dayTx = transactions.filter(t => t.date === dateStr)
-                  const dayIncome = dayTx.filter(t => t.type === '수입').reduce((sum, t) => sum + t.amount, 0)
-                  const dayExpense = dayTx.filter(t => t.type === '지출').reduce((sum, t) => sum + t.amount, 0)
-                  const isSelected = isSameDay(day, selectedDate)
-
-                  return (
-                    <div 
-                      key={day.toString()} 
-                      onClick={() => setSelectedDate(day)}
-                      className={`flex flex-col items-center justify-between min-h-[56px] pt-1 pb-1 cursor-pointer rounded-xl transition-all ${
-                        isSelected ? 'bg-gray-900 text-white shadow-md ring-2 ring-gray-900' : isToday(day) ? 'bg-blue-50/50 border border-blue-100' : 'hover:bg-gray-50'
-                      }`}
-                    >
-                      <span className={`text-xs font-semibold ${isSelected ? 'text-white' : isToday(day) ? 'text-blue-600' : 'text-gray-700'}`}>
-                        {format(day, 'd')}
-                      </span>
-                      <div className="flex flex-col text-[10px] w-full px-0.5 transform scale-90 origin-center leading-tight">
-                        {dayIncome > 0 && <span className={isSelected ? 'text-blue-200 font-bold' : 'text-blue-500 font-bold'}>+{dayIncome.toLocaleString()}</span>}
-                        {dayExpense > 0 && <span className={isSelected ? 'text-gray-300' : 'text-gray-400 font-medium'}>-{dayExpense.toLocaleString()}</span>}
-                      </div>
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
+          
+          {/* 모바일 뷰 영역 (PC에서는 좌측 패널) */}
+          <div className="md:col-span-5 space-y-6">
+            {activeTab === 'calendar' && (
+              <>
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                  <p className="text-sm text-gray-500 font-medium mb-1">이번 달 남은 잉여 자금</p>
+                  <p className="text-3xl font-bold text-gray-800 mb-4">₩ {remainingMoney.toLocaleString()}</p>
+                  <div className="flex gap-4 text-sm">
+                    <div className="flex-1 bg-blue-50/50 p-3 rounded-2xl">
+                      <p className="text-blue-600/70 font-medium mb-1">수입</p>
+                      <p className="font-semibold text-blue-900">₩ {totalIncome.toLocaleString()}</p>
                     </div>
-                  )
-                })}
-              </div>
-            </div>
+                    <div className="flex-1 bg-gray-50/50 p-3 rounded-2xl">
+                      <p className="text-gray-500 font-medium mb-1">지출 합계</p>
+                      <p className="font-semibold text-gray-800">₩ {totalExpense.toLocaleString()}</p>
+                    </div>
+                  </div>
+                </div>
 
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-              <h3 className="text-base font-bold text-gray-800 mb-4">{format(selectedDate, 'M월 d일')} 내역</h3>
-              <div className="space-y-1">
-                {selectedDayTransactions.length === 0 ? (
-                  <p className="text-center text-gray-400 text-sm py-6">이날의 내역이 없습니다.</p>
-                ) : (
-                  selectedDayTransactions.map(tx => (
-                    <div key={tx.id} className="flex justify-between items-center p-3 hover:bg-gray-50 rounded-xl transition-colors">
-                      <div className="flex items-center gap-2">
-                        <span className="text-base mr-1">{getOwnerEmoji(tx.owner)}</span>
-                        <div className="flex flex-col">
-                          <span className="text-sm font-semibold text-gray-800">{tx.description || '내용 없음'}</span>
-                          <span className="text-xs text-gray-400 mt-0.5">
-                            <span className="font-medium bg-gray-100 px-1.5 py-0.5 rounded text-[10px] text-gray-500 mr-1">
-                              {tx.categories?.name || '미분류'}
-                            </span>
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                  <div className="flex justify-between items-center mb-6">
+                    <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 hover:bg-gray-50 rounded-full transition-colors"><ChevronLeft size={20} className="text-gray-400"/></button>
+                    <h2 className="text-lg font-bold text-gray-800">{format(currentMonth, 'yyyy년 M월')}</h2>
+                    <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 hover:bg-gray-50 rounded-full transition-colors"><ChevronRight size={20} className="text-gray-400"/></button>
+                  </div>
+
+                  <div className="grid grid-cols-7 gap-y-4 text-center">
+                    {['일', '월', '화', '수', '목', '금', '토'].map(day => (
+                      <div key={day} className="text-xs font-semibold text-gray-400 mb-2">{day}</div>
+                    ))}
+                    {emptyDays.map((_, i) => <div key={`empty-${i}`} />)}
+                    {daysInMonth.map(day => {
+                      const dateStr = format(day, 'yyyy-MM-dd')
+                      const dayTx = transactions.filter(t => t.date === dateStr)
+                      const dayIncome = dayTx.filter(t => t.type === '수입').reduce((sum, t) => sum + t.amount, 0)
+                      const dayExpense = dayTx.filter(t => t.type === '지출').reduce((sum, t) => sum + t.amount, 0)
+                      const isSelected = isSameDay(day, selectedDate)
+
+                      return (
+                        <div 
+                          key={day.toString()} 
+                          onClick={() => setSelectedDate(day)}
+                          className={`flex flex-col items-center justify-between min-h-[56px] pt-1 pb-1 cursor-pointer rounded-xl transition-all ${
+                            isSelected ? 'bg-gray-900 text-white shadow-md ring-2 ring-gray-900' : isToday(day) ? 'bg-blue-50/50 border border-blue-100' : 'hover:bg-gray-50'
+                          }`}
+                        >
+                          <span className={`text-xs font-semibold ${isSelected ? 'text-white' : isToday(day) ? 'text-blue-600' : 'text-gray-700'}`}>
+                            {format(day, 'd')}
                           </span>
+                          <div className="flex flex-col text-[10px] w-full px-0.5 transform scale-90 origin-center leading-tight">
+                            {dayIncome > 0 && <span className={isSelected ? 'text-blue-200 font-bold' : 'text-blue-500 font-bold'}>+{dayIncome.toLocaleString()}</span>}
+                            {dayExpense > 0 && <span className={isSelected ? 'text-gray-300' : 'text-gray-400 font-medium'}>-{dayExpense.toLocaleString()}</span>}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 md:hidden">
+                  <h3 className="text-base font-bold text-gray-800 mb-4">{format(selectedDate, 'M월 d일')} 내역</h3>
+                  <div className="space-y-1">
+                    {selectedDayTransactions.length === 0 ? (
+                      <p className="text-center text-gray-400 text-sm py-6">이날의 내역이 없습니다.</p>
+                    ) : (
+                      selectedDayTransactions.map(tx => (
+                        <div key={tx.id} className="flex justify-between items-center p-3 hover:bg-gray-50 rounded-xl transition-colors">
+                          <div className="flex items-center gap-2">
+                            <span className="text-base mr-1">{getOwnerEmoji(tx.owner)}</span>
+                            <div className="flex flex-col">
+                              <span className="text-sm font-semibold text-gray-800">{tx.description || '내용 없음'}</span>
+                              <span className="text-xs text-gray-400 mt-0.5">
+                                <span className="font-medium bg-gray-100 px-1.5 py-0.5 rounded text-[10px] text-gray-500 mr-1">
+                                  {tx.categories?.name || '미분류'}
+                                </span>
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`font-bold text-sm mr-2 ${tx.type === '수입' ? 'text-blue-500' : 'text-gray-700'}`}>
+                              {tx.type === '수입' ? '+' : '-'}{tx.amount.toLocaleString()}
+                            </span>
+                            <button onClick={() => openEditModal(tx)} className="p-1.5 text-gray-300 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"><Edit2 size={15} /></button>
+                            <button onClick={() => deleteTransaction(tx.id)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={15} /></button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {activeTab === 'all' && (
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                <div className="space-y-1">
+                  {allRecentTransactions.length === 0 ? (
+                    <p className="text-center text-gray-400 text-sm py-6">입력된 내역이 없습니다.</p>
+                  ) : (
+                    allRecentTransactions.map(tx => (
+                      <div key={tx.id} className="flex justify-between items-center p-3 hover:bg-gray-50 rounded-xl transition-colors">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base mr-1">{getOwnerEmoji(tx.owner)}</span>
+                          <div className="flex flex-col">
+                            <span className="text-sm font-semibold text-gray-800">{tx.description || '내용 없음'}</span>
+                            <span className="text-xs text-gray-400 mt-0.5">
+                              <span className="font-medium bg-gray-100 px-1.5 py-0.5 rounded text-[10px] text-gray-500 mr-1.5">
+                                {tx.categories?.name || '미분류'}
+                              </span>
+                              {format(new Date(tx.date), 'M월 d일')}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`font-bold text-sm mr-2 ${tx.type === '수입' ? 'text-blue-500' : 'text-gray-700'}`}>
+                            {tx.type === '수입' ? '+' : '-'}{tx.amount.toLocaleString()}
+                          </span>
+                          <button onClick={() => openEditModal(tx)} className="p-1.5 text-gray-300 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"><Edit2 size={15} /></button>
+                          <button onClick={() => deleteTransaction(tx.id)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={15} /></button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`font-bold text-sm mr-2 ${tx.type === '수입' ? 'text-blue-500' : 'text-gray-700'}`}>
-                          {tx.type === '수입' ? '+' : '-'}{tx.amount.toLocaleString()}
-                        </span>
-                        <button onClick={() => openEditModal(tx)} className="p-1.5 text-gray-300 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"><Edit2 size={15} /></button>
-                        <button onClick={() => deleteTransaction(tx.id)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={15} /></button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </>
-        )}
-
-        {activeTab === 'all' && (
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-            <div className="space-y-1">
-              {allRecentTransactions.length === 0 ? (
-                <p className="text-center text-gray-400 text-sm py-6">입력된 내역이 없습니다.</p>
-              ) : (
-                allRecentTransactions.map(tx => (
-                  <div key={tx.id} className="flex justify-between items-center p-3 hover:bg-gray-50 rounded-xl transition-colors">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base mr-1">{getOwnerEmoji(tx.owner)}</span>
-                      <div className="flex flex-col">
-                        <span className="text-sm font-semibold text-gray-800">{tx.description || '내용 없음'}</span>
-                        <span className="text-xs text-gray-400 mt-0.5">
-                          <span className="font-medium bg-gray-100 px-1.5 py-0.5 rounded text-[10px] text-gray-500 mr-1.5">
-                            {tx.categories?.name || '미분류'}
-                          </span>
-                          {format(new Date(tx.date), 'M월 d일')}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`font-bold text-sm mr-2 ${tx.type === '수입' ? 'text-blue-500' : 'text-gray-700'}`}>
-                        {tx.type === '수입' ? '+' : '-'}{tx.amount.toLocaleString()}
-                      </span>
-                      <button onClick={() => openEditModal(tx)} className="p-1.5 text-gray-300 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"><Edit2 size={15} /></button>
-                      <button onClick={() => deleteTransaction(tx.id)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={15} /></button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'settings' && (
-          <div className="space-y-6">
-            <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100">
-              <h2 className="text-sm font-bold text-gray-700 mb-2">배우자 초대코드</h2>
-              <p className="text-xs text-gray-500 break-all bg-gray-50 p-3 rounded-xl border border-gray-100 font-mono select-all cursor-pointer">{dbUser.household_id}</p>
-            </div>
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 space-y-6">
-              <h3 className="text-base font-bold text-gray-800">카테고리 추가/삭제</h3>
-              <div className="flex gap-2 bg-gray-50 p-2 rounded-2xl border border-gray-100">
-                {/* 확대 방지 text-base 적용 */}
-                <select value={newCategoryType} onChange={(e) => setNewCategoryType(e.target.value)} className="bg-white border border-gray-200 rounded-xl px-2 text-base font-bold text-gray-700 focus:outline-none">
-                  <option value="지출">지출</option>
-                  <option value="수입">수입</option>
-                </select>
-                <input type="text" placeholder="새 분류 이름" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-base focus:outline-none" />
-                <button onClick={addCustomCategory} className="bg-gray-900 text-white text-xs px-4 rounded-xl font-bold hover:bg-gray-800 transition-colors">추가</button>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <h4 className="text-xs font-bold text-blue-500 mb-2">💰 수입</h4>
-                  <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
-                    {categories.filter(c => c.type === '수입').map(c => (
-                      <div key={c.id} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-xl text-xs text-gray-700 border border-gray-100">
-                        <span>{c.name}</span>
-                        <button onClick={() => deleteCustomCategory(c.id)} className="text-gray-300 hover:text-red-500"><Trash2 size={13}/></button>
-                      </div>
-                    ))}
-                  </div>
+                    ))
+                  )}
                 </div>
-                <div>
-                  <h4 className="text-xs font-bold text-gray-500 mb-2">💸 지출</h4>
-                  <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
-                    {categories.filter(c => c.type === '지출').map(c => (
-                      <div key={c.id} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-xl text-xs text-gray-700 border border-gray-100">
-                        <span>{c.name}</span>
-                        <button onClick={() => deleteCustomCategory(c.id)} className="text-gray-300 hover:text-red-500"><Trash2 size={13}/></button>
+              </div>
+            )}
+
+            {activeTab === 'settings' && (
+              <div className="space-y-6">
+                <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100">
+                  <h2 className="text-sm font-bold text-gray-700 mb-2">배우자 초대코드</h2>
+                  <p className="text-xs text-gray-500 break-all bg-gray-50 p-3 rounded-xl border border-gray-100 font-mono select-all cursor-pointer">{dbUser.household_id}</p>
+                </div>
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 space-y-6">
+                  <h3 className="text-base font-bold text-gray-800">카테고리 추가/삭제</h3>
+                  <div className="flex gap-2 bg-gray-50 p-2 rounded-2xl border border-gray-100">
+                    <select value={newCategoryType} onChange={(e) => setNewCategoryType(e.target.value)} className="bg-white border border-gray-200 rounded-xl px-2 text-base font-bold text-gray-700 focus:outline-none">
+                      <option value="지출">지출</option>
+                      <option value="수입">수입</option>
+                    </select>
+                    <input type="text" placeholder="새 분류 이름" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-base focus:outline-none" />
+                    <button onClick={addCustomCategory} className="bg-gray-900 text-white text-xs px-4 rounded-xl font-bold hover:bg-gray-800 transition-colors">추가</button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <h4 className="text-xs font-bold text-blue-500 mb-2">💰 수입</h4>
+                      <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                        {categories.filter(c => c.type === '수입').map(c => (
+                          <div key={c.id} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-xl text-xs text-gray-700 border border-gray-100">
+                            <span>{c.name}</span>
+                            <button onClick={() => deleteCustomCategory(c.id)} className="text-gray-300 hover:text-red-500"><Trash2 size={13}/></button>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-gray-500 mb-2">💸 지출</h4>
+                      <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                        {categories.filter(c => c.type === '지출').map(c => (
+                          <div key={c.id} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-xl text-xs text-gray-700 border border-gray-100">
+                            <span>{c.name}</span>
+                            <button onClick={() => deleteCustomCategory(c.id)} className="text-gray-300 hover:text-red-500"><Trash2 size={13}/></button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
+            )}
+          </div>
+
+          {/* PC 환경 전용 데이터 테이블 뷰 */}
+          <div className="hidden md:block md:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-gray-100 h-fit sticky top-6">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-gray-800">{format(currentMonth, 'M월')} 상세 데이터 표</h3>
+              <span className="text-sm font-semibold text-gray-500">총 {transactions.length}건</span>
+            </div>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b-2 border-gray-100 text-xs text-gray-400">
+                    <th className="pb-3 font-semibold w-16">날짜</th>
+                    <th className="pb-3 font-semibold w-16">분류</th>
+                    <th className="pb-3 font-semibold w-24">카테고리</th>
+                    <th className="pb-3 font-semibold w-16">주체</th>
+                    <th className="pb-3 font-semibold">내용</th>
+                    <th className="pb-3 font-semibold text-right">금액</th>
+                    <th className="pb-3 font-semibold text-center w-16">관리</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm">
+                  {transactions.map(tx => (
+                    <tr key={tx.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors group">
+                      <td className="py-3 text-gray-500 font-medium">{format(new Date(tx.date), 'MM-dd')}</td>
+                      <td className="py-3">
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${tx.type === '수입' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
+                          {tx.type}
+                        </span>
+                      </td>
+                      <td className="py-3 text-gray-600 font-medium">{tx.categories?.name || '미분류'}</td>
+                      <td className="py-3">{getOwnerEmoji(tx.owner)} {tx.owner}</td>
+                      <td className="py-3 text-gray-800">{tx.description}</td>
+                      <td className="py-3 text-right font-bold text-gray-900">{tx.amount.toLocaleString()}</td>
+                      <td className="py-3 text-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex justify-center gap-1">
+                          <button onClick={() => openEditModal(tx)} className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"><Edit2 size={14} /></button>
+                          <button onClick={() => deleteTransaction(tx.id)} className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded"><Trash2 size={14} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {transactions.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-gray-400">이번 달 내역이 없습니다.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
-        )}
+
+        </div>
       </div>
 
+      {/* 플로팅 버튼 (모바일용) */}
       {activeTab !== 'settings' && (
         <button 
           onClick={openCreateModal}
-          className="fixed bottom-24 right-6 bg-gray-900 text-white p-4 rounded-full shadow-lg hover:bg-gray-800 transition-transform hover:scale-105 z-40"
+          className="md:hidden fixed bottom-24 right-6 bg-gray-900 text-white p-4 rounded-full shadow-lg hover:bg-gray-800 transition-transform hover:scale-105 z-40"
         >
           <Plus size={24} />
         </button>
       )}
 
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-gray-100 py-3 px-6 flex justify-around items-center z-40 shadow-lg max-w-xl mx-auto sm:rounded-t-3xl">
+      {/* 하단 네비게이션 (모바일용) */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-gray-100 py-3 px-6 flex justify-around items-center z-40 shadow-lg max-w-xl mx-auto sm:rounded-t-3xl">
         <button onClick={() => setActiveTab('calendar')} className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'calendar' ? 'text-gray-900' : 'text-gray-400'}`}>
           <CalendarIcon size={20} /><span className="text-[10px] font-bold">달력</span>
         </button>
@@ -459,6 +548,7 @@ export default function Dashboard() {
         </button>
       </nav>
 
+      {/* 입력 및 수정 타이트 모달 */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/20 z-50 flex items-end sm:items-center sm:justify-center">
           <div className="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl p-6 shadow-2xl">
@@ -512,7 +602,6 @@ export default function Dashboard() {
             <div className="space-y-4 mb-8">
               <div className="relative">
                 <span className="absolute left-0 top-0 bottom-0 flex items-center text-xl font-bold text-gray-400">₩</span>
-                {/* ★ autoFocus 제거하여 키패드가 강제로 올라오는 현상 방지 */}
                 <input 
                   type="text" 
                   inputMode="numeric"
@@ -523,19 +612,17 @@ export default function Dashboard() {
                 />
               </div>
               
-              {/* ★ 내용 입력창 (text-base 적용 및 추천 기능 추가) */}
               <div className="relative">
                 <input 
                   type="text" 
                   value={memo} 
                   onChange={(e) => setMemo(e.target.value)} 
                   onFocus={() => setIsMemoFocused(true)}
-                  onBlur={() => setTimeout(() => setIsMemoFocused(false), 200)} // 터치 인식 시간 벌기
+                  onBlur={() => setTimeout(() => setIsMemoFocused(false), 200)} 
                   placeholder="내용을 입력하세요" 
                   className="w-full text-base text-gray-800 placeholder-gray-400 bg-gray-50 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-gray-200" 
                 />
                 
-                {/* 추천 내역 팝업 박스 */}
                 {isMemoFocused && filteredMemos.length > 0 && (
                   <div className="absolute z-10 w-full mt-2 bg-white border border-gray-100 rounded-xl shadow-lg overflow-hidden bottom-full mb-2">
                     {filteredMemos.map((m, idx) => (
