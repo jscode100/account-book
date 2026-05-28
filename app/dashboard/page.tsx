@@ -292,7 +292,7 @@ export default function Dashboard() {
           {/* ★ 핵심 수정: 자산 흐름 텍스트 대신 "YY년 ₩누적자금" 출력 */}
           <h1 className="text-2xl font-bold text-gray-800 tracking-tight">
             {activeTab === 'calendar' 
-              ? `${format(currentMonth, 'yy')}년 ₩${ytdRemainingMoney.toLocaleString()}` 
+              ? `${format(currentMonth, 'yy')}년 ${ytdRemainingMoney.toLocaleString()}` 
               : activeTab === 'all' ? '전체 이력' : '가계부 설정'}
           </h1>
           
@@ -319,15 +319,15 @@ export default function Dashboard() {
               <>
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
                   <p className="text-sm text-gray-500 font-medium mb-1">이번 달 순수익</p>
-                  <p className="text-3xl font-bold text-gray-800 mb-4">₩ {remainingMoney.toLocaleString()}</p>
+                  <p className="text-3xl font-bold text-gray-800 mb-4">{remainingMoney.toLocaleString()}</p>
                   <div className="flex gap-4 text-sm">
                     <div className="flex-1 bg-blue-50/50 p-3 rounded-2xl">
                       <p className="text-blue-600/70 font-medium mb-1">수입</p>
-                      <p className="font-semibold text-blue-900">₩ {totalIncome.toLocaleString()}</p>
+                      <p className="font-semibold text-blue-900">{totalIncome.toLocaleString()}</p>
                     </div>
                     <div className="flex-1 bg-gray-50/50 p-3 rounded-2xl">
                       <p className="text-gray-500 font-medium mb-1">지출 합계</p>
-                      <p className="font-semibold text-gray-800">₩ {totalExpense.toLocaleString()}</p>
+                      <p className="font-semibold text-gray-800">{totalExpense.toLocaleString()}</p>
                     </div>
                   </div>
                 </div>
@@ -611,7 +611,7 @@ export default function Dashboard() {
 
             <div className="space-y-4 mb-8">
               <div className="relative">
-                <span className="absolute left-0 top-0 bottom-0 flex items-center text-xl font-bold text-gray-400">₩</span>
+                <span className="absolute left-0 top-0 bottom-0 flex items-center text-xl font-bold text-gray-400"></span>
                 <input 
                   type="text" 
                   inputMode="numeric"
