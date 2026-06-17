@@ -2,25 +2,28 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
-// ★ startOfYear 함수가 새로 추가되었습니다.
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, subMonths, isToday, isSameDay, startOfYear } from 'date-fns'
-import { Plus, X, ChevronLeft, ChevronRight, Trash2, Edit2, Calendar as CalendarIcon, ClipboardList, Settings, Download } from 'lucide-react'
+// ★ PieChart 아이콘 추가
+import { Plus, X, ChevronLeft, ChevronRight, Trash2, Edit2, Calendar as CalendarIcon, ClipboardList, Settings, Download, PieChart } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 export default function Dashboard() {
   const supabase = createClient()
+  const router = useRouter()
+  
   const [loading, setLoading] = useState(true)
   const [user, setUser] = useState<any>(null)
   const [dbUser, setDbUser] = useState<any>(null)
   
   const [transactions, setTransactions] = useState<any[]>([])
   const [categories, setCategories] = useState<any[]>([])
-  // ★ 신규 추가: 해당 연도 누적 잉여 자금 상태
   const [ytdRemainingMoney, setYtdRemainingMoney] = useState(0)
   
   const [inviteCode, setInviteCode] = useState('')
   const [nickname, setNickname] = useState('')
 
-  const [activeTab, setActiveTab] = useState<'calendar' | 'all' | 'settings'>('calendar')
+  // ★ 탭 종류에 'summary'(통계) 추가
+  const [activeTab, setActiveTab] = useState<'calendar' | 'all' | 'summary' | 'settings'>('calendar')
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
@@ -72,9 +75,17 @@ export default function Dashboard() {
           const { data: reCatData } = await supabase.from('categories').select('*').eq('household_id', uData.household_id)
           catData = reCatData
         }
-        setCategories(catData || [])
+        
+        let fetchedCats = catData || []
+        fetchedCats.sort((a, b) => {
+          if (a.name === '식비') return -1 
+          if (b.name === '식비') return 1
+          if (a.name === '주거비') return 1 
+          if (b.name === '주거비') return -1
+          return 0 
+        })
+        setCategories(fetchedCats)
 
-        // ★ 해당 연도의 1월 1일부터 검색하도록 날짜 범위 확장
         const yearStartStr = format(startOfYear(currentMonth), 'yyyy-MM-dd')
         const monthStartStr = format(startOfMonth(currentMonth), 'yyyy-MM-dd')
         const monthEndStr = format(endOfMonth(currentMonth), 'yyyy-MM-dd')
@@ -84,16 +95,14 @@ export default function Dashboard() {
           .select('*, categories(name)')
           .eq('household_id', uData.household_id)
           .gte('date', yearStartStr)
-          .lte('date', monthEndStr) // 1월부터 '현재 보고 있는 달'의 끝날까지
+          .lte('date', monthEndStr)
           .order('date', { ascending: true })
 
         if (txData) {
-          // 1. 올해 1월부터 해당 월까지의 누적 잉여 자금 계산
           const ytdInc = txData.filter(t => t.type === '수입').reduce((sum, t) => sum + t.amount, 0)
           const ytdExp = txData.filter(t => t.type === '지출').reduce((sum, t) => sum + t.amount, 0)
           setYtdRemainingMoney(ytdInc - ytdExp)
 
-          // 2. 화면 달력과 리스트에 보여줄 '이번 달' 데이터만 필터링해서 분리
           const currentMonthTx = txData.filter(t => t.date >= monthStartStr && t.date <= monthEndStr)
           setTransactions(currentMonthTx)
         } else {
@@ -101,6 +110,8 @@ export default function Dashboard() {
           setYtdRemainingMoney(0)
         }
       }
+    } else {
+      router.push('/')
     }
     setLoading(false)
   }
@@ -135,6 +146,12 @@ export default function Dashboard() {
     window.location.reload()
   }
 
+  const handleLogout = async () => {
+    if (!confirm('정말 로그아웃 하시겠습니까?')) return
+    await supabase.auth.signOut()
+    router.push('/') 
+  }
+
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawValue = e.target.value.replace(/[^0-9]/g, '')
     if (!rawValue) {
@@ -149,9 +166,11 @@ export default function Dashboard() {
     setAmount('')
     setMemo('')
     
-    if (dbUser.nickname.includes('아내') || dbUser.nickname.includes('소은')) {
+    const currentNickname = dbUser.nickname.toUpperCase()
+    
+    if (currentNickname.includes('아내') || currentNickname.includes('SE')) {
       setTxOwner('아내')
-    } else if (dbUser.nickname.includes('남편') || dbUser.nickname.includes('제이스')) {
+    } else if (currentNickname.includes('남편') || currentNickname.includes('JS')) {
       setTxOwner('남편')
     } else {
       setTxOwner('공통')
@@ -240,6 +259,18 @@ export default function Dashboard() {
     document.body.removeChild(link)
   }
 
+  // ★ 통계 계산 로직 (이번 달 카테고리별 지출 합산 및 내림차순 정렬)
+  const expenseByCategory = transactions
+    .filter(t => t.type === '지출')
+    .reduce((acc, t) => {
+      const catName = t.categories?.name || '미분류'
+      acc[catName] = (acc[catName] || 0) + t.amount
+      return acc
+    }, {} as Record<string, number>)
+
+  const sortedExpenses = Object.entries(expenseByCategory).sort((a, b) => b[1] - a[1])
+  const maxExpense = sortedExpenses.length > 0 ? sortedExpenses[0][1] : 1
+
   const totalIncome = transactions.filter(t => t.type === '수입').reduce((sum, t) => sum + t.amount, 0)
   const totalExpense = transactions.filter(t => t.type === '지출').reduce((sum, t) => sum + t.amount, 0)
   const remainingMoney = totalIncome - totalExpense
@@ -289,11 +320,12 @@ export default function Dashboard() {
       <div className="max-w-xl md:max-w-6xl mx-auto space-y-6 p-6">
         
         <header className="flex justify-between items-center py-2">
-          {/* ★ 핵심 수정: 자산 흐름 텍스트 대신 "YY년 ₩누적자금" 출력 */}
           <h1 className="text-2xl font-bold text-gray-800 tracking-tight">
             {activeTab === 'calendar' 
               ? `${format(currentMonth, 'yy')}년 ${ytdRemainingMoney.toLocaleString()}` 
-              : activeTab === 'all' ? '전체 이력' : '가계부 설정'}
+              : activeTab === 'all' ? '전체 이력' 
+              : activeTab === 'summary' ? '월별 통계'
+              : '가계부 설정'}
           </h1>
           
           <div className="flex items-center gap-2">
@@ -303,8 +335,12 @@ export default function Dashboard() {
             <button onClick={downloadCSV} className="hidden md:flex items-center gap-1.5 bg-green-50 text-green-700 px-4 py-2 rounded-xl text-sm font-bold border border-green-200 hover:bg-green-100 transition-colors shadow-sm">
               <Download size={16} /><span>엑셀 추출</span>
             </button>
-            <button onClick={() => setActiveTab(activeTab === 'settings' ? 'calendar' : 'settings')} className="hidden md:flex items-center gap-1.5 bg-white text-gray-700 px-4 py-2 rounded-xl text-sm font-bold border border-gray-200 hover:bg-gray-50 transition-colors shadow-sm">
-              <Settings size={16} /><span>{activeTab === 'settings' ? '돌아가기' : '설정'}</span>
+            {/* ★ PC 헤더에 통계 버튼 추가 */}
+            <button onClick={() => setActiveTab(activeTab === 'summary' ? 'calendar' : 'summary')} className={`hidden md:flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold border transition-colors shadow-sm ${activeTab === 'summary' ? 'bg-gray-100 border-gray-200 text-gray-800' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
+              <PieChart size={16} /><span>{activeTab === 'summary' ? '돌아가기' : '통계'}</span>
+            </button>
+            <button onClick={() => setActiveTab(activeTab === 'settings' ? 'calendar' : 'settings')} className={`hidden md:flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold border transition-colors shadow-sm ${activeTab === 'settings' ? 'bg-gray-100 border-gray-200 text-gray-800' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
+              <Settings size={16} /><span>설정</span>
             </button>
             <div className="text-sm bg-white px-4 py-2 ml-1 rounded-full border border-gray-200 text-gray-600 shadow-sm font-medium">
               {dbUser.nickname}님
@@ -440,12 +476,46 @@ export default function Dashboard() {
               </div>
             )}
 
+            {/* ★ 신규 추가: 통계(Summary) 탭 영역 */}
+            {activeTab === 'summary' && (
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                <div className="flex justify-between items-center mb-8">
+                  <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 hover:bg-gray-50 rounded-full transition-colors"><ChevronLeft size={20} className="text-gray-400"/></button>
+                  <h2 className="text-lg font-bold text-gray-800">{format(currentMonth, 'yyyy년 M월')} 카테고리별 지출</h2>
+                  <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 hover:bg-gray-50 rounded-full transition-colors"><ChevronRight size={20} className="text-gray-400"/></button>
+                </div>
+
+                <div className="space-y-5">
+                  {sortedExpenses.length === 0 ? (
+                    <p className="text-center text-gray-400 text-sm py-12">이번 달 지출 내역이 없습니다.</p>
+                  ) : (
+                    sortedExpenses.map(([cat, amt]) => (
+                      <div key={cat} className="space-y-1.5">
+                        <div className="flex justify-between text-sm items-end">
+                          <span className="font-bold text-gray-700">{cat}</span>
+                          <span className="font-bold text-gray-900">{amt.toLocaleString()}원</span>
+                        </div>
+                        {/* 프로그레스 바 영역 */}
+                        <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                          <div 
+                            className="bg-gray-800 h-2.5 rounded-full transition-all duration-500 ease-out" 
+                            style={{ width: `${(amt / maxExpense) * 100}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
             {activeTab === 'settings' && (
               <div className="space-y-6">
                 <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100">
                   <h2 className="text-sm font-bold text-gray-700 mb-2">배우자 초대코드</h2>
                   <p className="text-xs text-gray-500 break-all bg-gray-50 p-3 rounded-xl border border-gray-100 font-mono select-all cursor-pointer">{dbUser.household_id}</p>
                 </div>
+                
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 space-y-6">
                   <h3 className="text-base font-bold text-gray-800">카테고리 추가/삭제</h3>
                   <div className="flex gap-2 bg-gray-50 p-2 rounded-2xl border border-gray-100">
@@ -481,6 +551,13 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
+
+                <button 
+                  onClick={handleLogout} 
+                  className="w-full bg-red-50 text-red-500 font-bold text-sm py-4 rounded-3xl hover:bg-red-100 transition-colors shadow-sm border border-red-100"
+                >
+                  로그아웃
+                </button>
               </div>
             )}
           </div>
@@ -547,12 +624,16 @@ export default function Dashboard() {
         </button>
       )}
 
+      {/* ★ 하단 네비게이션 탭 4개로 분할 및 통계 아이콘 추가 */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-gray-100 py-3 px-6 flex justify-around items-center z-40 shadow-lg max-w-xl mx-auto sm:rounded-t-3xl">
         <button onClick={() => setActiveTab('calendar')} className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'calendar' ? 'text-gray-900' : 'text-gray-400'}`}>
           <CalendarIcon size={20} /><span className="text-[10px] font-bold">달력</span>
         </button>
         <button onClick={() => setActiveTab('all')} className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'all' ? 'text-gray-900' : 'text-gray-400'}`}>
-          <ClipboardList size={20} /><span className="text-[10px] font-bold">전체 이력</span>
+          <ClipboardList size={20} /><span className="text-[10px] font-bold">전체</span>
+        </button>
+        <button onClick={() => setActiveTab('summary')} className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'summary' ? 'text-gray-900' : 'text-gray-400'}`}>
+          <PieChart size={20} /><span className="text-[10px] font-bold">통계</span>
         </button>
         <button onClick={() => setActiveTab('settings')} className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'settings' ? 'text-gray-900' : 'text-gray-400'}`}>
           <Settings size={20} /><span className="text-[10px] font-bold">설정</span>
