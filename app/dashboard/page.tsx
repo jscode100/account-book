@@ -268,7 +268,7 @@ export default function Dashboard() {
       return acc
     }, {} as Record<string, number>)
 
-  const sortedExpenses = Object.entries(expenseByCategory).sort((a, b) => b[1] - a[1])
+  const sortedExpenses = (Object.entries(expenseByCategory) as [string, number][]).sort((a, b) => b[1] - a[1])
   const maxExpense = sortedExpenses.length > 0 ? sortedExpenses[0][1] : 1
 
   const totalIncome = transactions.filter(t => t.type === '수입').reduce((sum, t) => sum + t.amount, 0)
