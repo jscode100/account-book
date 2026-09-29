@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, subMonths, isToday, isSameDay, startOfYear } from 'date-fns'
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, subMonths, isToday, isSameDay, startOfYear, parseISO } from 'date-fns'
 // ★ PieChart 아이콘 추가
 import { Plus, X, ChevronLeft, ChevronRight, Trash2, Edit2, Calendar as CalendarIcon, ClipboardList, Settings, Download, PieChart } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -29,6 +29,8 @@ export default function Dashboard() {
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
   const [editingTxId, setEditingTxId] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState(new Date())
+  const [txDate, setTxDate] = useState(new Date())
+  const [saving, setSaving] = useState(false)
   
   const [txType, setTxType] = useState('지출')
   const [amount, setAmount] = useState('')
@@ -49,8 +51,11 @@ export default function Dashboard() {
       if (uData) {
         setDbUser(uData)
         
-        let { data: catData } = await supabase.from('categories').select('*').eq('household_id', uData.household_id)
-        if (!catData || catData.length === 0) {
+        let { data: catData, error: catError } = await supabase.from('categories').select('*').eq('household_id', uData.household_id)
+        if (catError) {
+          alert('카테고리를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.')
+          catData = []
+        } else if (!catData || catData.length === 0) {
           const defaultCategories = [
             { household_id: uData.household_id, type: '수입', name: '사업소득' },
             { household_id: uData.household_id, type: '수입', name: '월급' },
@@ -90,13 +95,27 @@ export default function Dashboard() {
         const monthStartStr = format(startOfMonth(currentMonth), 'yyyy-MM-dd')
         const monthEndStr = format(endOfMonth(currentMonth), 'yyyy-MM-dd')
         
-        const { data: txData } = await supabase
-          .from('transactions')
-          .select('*, categories(name)')
-          .eq('household_id', uData.household_id)
-          .gte('date', yearStartStr)
-          .lte('date', monthEndStr)
-          .order('date', { ascending: true })
+        // Supabase는 한 번에 최대 1,000건만 주므로 1,000건씩 나눠서 끝까지 불러온다
+        const PAGE_SIZE = 1000
+        let txData: any[] | null = []
+        for (let from = 0; ; from += PAGE_SIZE) {
+          const { data: page, error: txError } = await supabase
+            .from('transactions')
+            .select('*, categories(name)')
+            .eq('household_id', uData.household_id)
+            .gte('date', yearStartStr)
+            .lte('date', monthEndStr)
+            .order('date', { ascending: true })
+            .order('id', { ascending: true })
+            .range(from, from + PAGE_SIZE - 1)
+          if (txError) {
+            alert('내역을 불러오지 못했습니다. 잠시 후 새로고침해 주세요.')
+            txData = null
+            break
+          }
+          txData.push(...(page || []))
+          if (!page || page.length < PAGE_SIZE) break
+        }
 
         if (txData) {
           const ytdInc = txData.filter(t => t.type === '수입').reduce((sum, t) => sum + t.amount, 0)
@@ -163,6 +182,9 @@ export default function Dashboard() {
 
   const openCreateModal = () => {
     setModalMode('create')
+    setEditingTxId(null)
+    setTxType('지출')
+    setTxDate(selectedDate)
     setAmount('')
     setMemo('')
     
@@ -181,7 +203,7 @@ export default function Dashboard() {
   const openEditModal = (tx: any) => {
     setModalMode('edit')
     setEditingTxId(tx.id)
-    setSelectedDate(new Date(tx.date))
+    setTxDate(parseISO(tx.date))
     setTxType(tx.type)
     setAmount(tx.amount.toLocaleString())
     setMemo(tx.description || '')
@@ -191,6 +213,7 @@ export default function Dashboard() {
   }
 
   const saveTransaction = async () => {
+    if (saving) return
     if (!amount) return alert('금액을 입력해주세요.')
     const numericAmount = Number(amount.replace(/,/g, ''))
     
@@ -200,15 +223,19 @@ export default function Dashboard() {
       type: txType,
       amount: numericAmount,
       category_id: selectedCategoryId || null,
-      date: format(selectedDate, 'yyyy-MM-dd'),
+      date: format(txDate, 'yyyy-MM-dd'),
       description: memo,
       owner: txOwner
     }
 
-    if (modalMode === 'edit' && editingTxId) {
-      await supabase.from('transactions').update(txData).eq('id', editingTxId)
-    } else {
-      await supabase.from('transactions').insert(txData)
+    setSaving(true)
+    const { error } = modalMode === 'edit' && editingTxId
+      ? await supabase.from('transactions').update(txData).eq('id', editingTxId)
+      : await supabase.from('transactions').insert(txData)
+    setSaving(false)
+    if (error) {
+      alert('저장하지 못했습니다. 인터넷 연결을 확인하고 다시 눌러주세요.\n(' + error.message + ')')
+      return
     }
     setIsModalOpen(false)
     setEditingTxId(null)
@@ -217,20 +244,16 @@ export default function Dashboard() {
 
   const deleteTransaction = async (id: string) => {
     if (!confirm('이 내역을 정말 삭제하시겠습니까?')) return
-    await supabase.from('transactions').delete().eq('id', id)
+    const { error } = await supabase.from('transactions').delete().eq('id', id)
+    if (error) alert('삭제하지 못했습니다. 다시 시도해주세요.\n(' + error.message + ')')
     loadData()
   }
 
   const addCustomCategory = async () => {
     if (!newCategoryName) return alert('카테고리명을 입력해주세요.')
-    await supabase.from('categories').insert({ household_id: dbUser.household_id, type: newCategoryType, name: newCategoryName })
+    const { error } = await supabase.from('categories').insert({ household_id: dbUser.household_id, type: newCategoryType, name: newCategoryName })
+    if (error) return alert('카테고리를 추가하지 못했습니다.\n(' + error.message + ')')
     setNewCategoryName('')
-    loadData()
-  }
-
-  const deleteCustomCategory = async (id: string) => {
-    if (!confirm('이 카테고리를 삭제하시겠습니까?')) return
-    await supabase.from('categories').delete().eq('id', id)
     loadData()
   }
 
@@ -458,7 +481,7 @@ export default function Dashboard() {
                               <span className="font-medium bg-gray-100 px-1.5 py-0.5 rounded text-[10px] text-gray-500 mr-1.5">
                                 {tx.categories?.name || '미분류'}
                               </span>
-                              {format(new Date(tx.date), 'M월 d일')}
+                              {format(parseISO(tx.date), 'M월 d일')}
                             </span>
                           </div>
                         </div>
@@ -517,7 +540,7 @@ export default function Dashboard() {
                 </div>
                 
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 space-y-6">
-                  <h3 className="text-base font-bold text-gray-800">카테고리 추가/삭제</h3>
+                  <h3 className="text-base font-bold text-gray-800">카테고리 추가</h3>
                   <div className="flex gap-2 bg-gray-50 p-2 rounded-2xl border border-gray-100">
                     <select value={newCategoryType} onChange={(e) => setNewCategoryType(e.target.value)} className="bg-white border border-gray-200 rounded-xl px-2 text-base font-bold text-gray-700 focus:outline-none">
                       <option value="지출">지출</option>
@@ -533,7 +556,6 @@ export default function Dashboard() {
                         {categories.filter(c => c.type === '수입').map(c => (
                           <div key={c.id} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-xl text-xs text-gray-700 border border-gray-100">
                             <span>{c.name}</span>
-                            <button onClick={() => deleteCustomCategory(c.id)} className="text-gray-300 hover:text-red-500"><Trash2 size={13}/></button>
                           </div>
                         ))}
                       </div>
@@ -544,7 +566,6 @@ export default function Dashboard() {
                         {categories.filter(c => c.type === '지출').map(c => (
                           <div key={c.id} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-xl text-xs text-gray-700 border border-gray-100">
                             <span>{c.name}</span>
-                            <button onClick={() => deleteCustomCategory(c.id)} className="text-gray-300 hover:text-red-500"><Trash2 size={13}/></button>
                           </div>
                         ))}
                       </div>
@@ -584,7 +605,7 @@ export default function Dashboard() {
                 <tbody className="text-sm">
                   {transactions.map(tx => (
                     <tr key={tx.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors group">
-                      <td className="py-3 text-gray-500 font-medium">{format(new Date(tx.date), 'MM-dd')}</td>
+                      <td className="py-3 text-gray-500 font-medium">{format(parseISO(tx.date), 'MM-dd')}</td>
                       <td className="py-3">
                         <span className={`px-2 py-1 rounded text-xs font-bold ${tx.type === '수입' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
                           {tx.type}
@@ -645,7 +666,7 @@ export default function Dashboard() {
           <div className="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl p-6 shadow-2xl">
             
             <div className="flex justify-between items-center mb-5">
-              <h3 className="text-lg font-bold text-gray-800">{format(selectedDate, 'M월 d일')} {modalMode === 'edit' ? '수정' : '추가'}</h3>
+              <h3 className="text-lg font-bold text-gray-800">{format(txDate, 'M월 d일')} {modalMode === 'edit' ? '수정' : '추가'}</h3>
               <button onClick={() => setIsModalOpen(false)} className="p-1 text-gray-400 hover:text-gray-600"><X size={24} /></button>
             </div>
 
@@ -733,8 +754,8 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <button onClick={saveTransaction} className="w-full bg-gray-900 text-white font-bold text-base py-4 rounded-2xl hover:bg-gray-800 transition-colors">
-              {modalMode === 'edit' ? '수정완료' : '저장하기'}
+            <button onClick={saveTransaction} disabled={saving} className="w-full bg-gray-900 text-white font-bold text-base py-4 rounded-2xl hover:bg-gray-800 transition-colors disabled:bg-gray-400">
+              {saving ? '저장 중...' : modalMode === 'edit' ? '수정완료' : '저장하기'}
             </button>
             
           </div>

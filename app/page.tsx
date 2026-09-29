@@ -21,24 +21,6 @@ export default function LoginPage() {
     checkSession()
   }, [router])
 
-  const handleSignUp = async () => {
-    if (!email || !password) return alert('이메일과 비밀번호를 입력해주세요.')
-    if (password.length < 6) return alert('비밀번호는 6자리 이상이어야 합니다.')
-    
-    setLoading(true)
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-    })
-    
-    if (error) {
-      alert('회원가입 실패: ' + error.message)
-    } else {
-      alert('가입이 완료되었습니다! 이제 로그인을 눌러주세요.')
-    }
-    setLoading(false)
-  }
-
   const handleLogin = async () => {
     if (!email || !password) return alert('이메일과 비밀번호를 입력해주세요.')
     
@@ -62,7 +44,7 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <div className="text-4xl mb-4">💸</div>
           <h1 className="text-2xl font-bold text-gray-800 tracking-tight">우리집 가계부</h1>
-          <p className="text-sm text-gray-500 mt-2">안전하고 간편한 자산 관리</p>
+          <p className="text-sm text-gray-500 mt-2">등록된 계정으로만 로그인할 수 있습니다</p>
         </div>
 
         <div className="space-y-4">
@@ -95,13 +77,6 @@ export default function LoginPage() {
               className="w-full bg-gray-900 text-white font-bold text-base py-3.5 rounded-2xl hover:bg-gray-800 transition-colors disabled:bg-gray-400"
             >
               {loading ? '처리 중...' : '로그인'}
-            </button>
-            <button 
-              onClick={handleSignUp}
-              disabled={loading}
-              className="w-full bg-white text-gray-700 font-bold text-base py-3.5 rounded-2xl border border-gray-200 hover:bg-gray-50 transition-colors disabled:bg-gray-100"
-            >
-              새로 시작하기 (회원가입)
             </button>
           </div>
         </div>
